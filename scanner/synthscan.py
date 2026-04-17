@@ -34,6 +34,7 @@ class PatternDef:
     is_regex: bool
     severity: str = "MEDIUM"
     compiled: "re.Pattern | None" = None
+    applies_to: "frozenset[str] | None" = None  # file extensions, e.g. {".py"}
 
     @property
     def score(self) -> float:
@@ -81,11 +82,18 @@ SKIP_DIRS = {
     ".eggs", "*.egg-info", ".next", ".nuxt", "vendor",
 }
 
+# Files always skipped (pattern definitions, previous reports, etc.)
+SKIP_FILES = {
+    "synthetic_patterns.md",
+    "synthscan-report.json",
+}
+
 MAX_FILE_SIZE_BYTES = 1_000_000  # 1 MB – skip huge generated files
 
 
 _SEVERITY_TAG_RE = re.compile(r"^\[(CRITICAL|HIGH|MEDIUM|LOW)\]\s*", re.IGNORECASE)
 _DEFAULT_SEV_RE = re.compile(r"Default severity:\s*\*{0,2}(CRITICAL|HIGH|MEDIUM|LOW)\*{0,2}", re.IGNORECASE)
+_APPLIES_TO_RE = re.compile(r"Applies to:\s*(.+)", re.IGNORECASE)
 
 
 def load_patterns(md_path: str) -> List[PatternDef]:
@@ -94,6 +102,7 @@ def load_patterns(md_path: str) -> List[PatternDef]:
     patterns: List[PatternDef] = []
     current_category = "Uncategorised"
     category_severity = DEFAULT_SEVERITY
+    category_applies_to: "frozenset[str] | None" = None
     in_block = False
 
     with open(md_path, encoding="utf-8") as fh:
@@ -104,6 +113,7 @@ def load_patterns(md_path: str) -> List[PatternDef]:
             if line.startswith("## "):
                 current_category = line[3:].strip()
                 category_severity = DEFAULT_SEVERITY  # reset
+                category_applies_to = None  # reset
                 continue
 
             # Detect "Default severity: **HIGH**" lines outside blocks
@@ -111,6 +121,13 @@ def load_patterns(md_path: str) -> List[PatternDef]:
                 sev_match = _DEFAULT_SEV_RE.search(line)
                 if sev_match:
                     category_severity = sev_match.group(1).upper()
+                    continue
+
+                # Detect "Applies to: .py, .pyw" lines outside blocks
+                applies_match = _APPLIES_TO_RE.search(line)
+                if applies_match:
+                    exts = {e.strip().lower() for e in applies_match.group(1).split(",") if e.strip()}
+                    category_applies_to = frozenset(exts) if exts else None
                     continue
 
             # Detect fenced-block boundaries
@@ -148,6 +165,7 @@ def load_patterns(md_path: str) -> List[PatternDef]:
                 is_regex=is_regex,
                 severity=severity,
                 compiled=compiled,
+                applies_to=category_applies_to,
             ))
 
     return patterns
@@ -161,6 +179,8 @@ def _should_skip_dir(dirname: str) -> bool:
 
 
 def _is_scannable(path: Path) -> bool:
+    if path.name in SKIP_FILES:
+        return False
     if path.suffix.lower() not in SOURCE_EXTENSIONS:
         return False
     try:
@@ -179,9 +199,13 @@ def scan_file(filepath: Path, patterns: List[PatternDef]) -> List[Match]:
     except OSError:
         return matches
 
+    file_ext = filepath.suffix.lower()
     lines = text.split("\n")
     for line_no, line_text in enumerate(lines, start=1):
         for pat in patterns:
+            # Skip patterns that are scoped to specific file extensions
+            if pat.applies_to and file_ext not in pat.applies_to:
+                continue
             hit = False
             if pat.is_regex and pat.compiled:
                 hit = bool(pat.compiled.search(line_text))

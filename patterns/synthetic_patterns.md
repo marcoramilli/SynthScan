@@ -1,6 +1,10 @@
-# Synthetic / AI-Generated Code Patterns
+# SynthScan — AI Slop Detection Patterns
 
 > **This file defines the detection patterns used by SynthScan.**
+>
+> Focused exclusively on **AI slop** — phrases, vocabulary, structural tells,
+> and hallucination markers that indicate AI-generated code. General code-quality
+> issues (linting, security, style) are intentionally excluded to avoid false positives.
 >
 > Each pattern is defined in a fenced block under its category.
 > To add new patterns, append them to the appropriate section or create a new `## Category`.
@@ -15,300 +19,46 @@
 > | HIGH | 5 |
 > | MEDIUM | 2 |
 > | LOW | 1 |
->
-> Patterns sourced from [AI-SLOP-Detector Pattern Catalog v3.5.0](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md).
 
 ---
 
 ## Slop Phrases
 
-Default severity: **LOW**
-
-Common filler phrases and clichés frequently produced by AI code assistants.
-
-```patterns
-# Overly verbose or unnecessary comments
-It's worth noting that
-As an AI language model
-Note that this is a simplified
-This is a basic implementation
-This is a placeholder
-For demonstration purposes
-# Trivial docstrings
-This function does what its name suggests
-This method is self-explanatory
-# Filler transitions
-Let me know if you need
-Feel free to modify
-Here's a simple example
-As mentioned earlier
-```
-
----
-
-## Structural Issues
-
-Default severity: **CRITICAL**
-
-Patterns from [AI-SLOP-Detector: Structural Issues](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#structural-issues).
-
-```patterns
-# bare_except — catches all exceptions including SystemExit (CRITICAL)
-regex:except\s*:\s*$
-# mutable_default_arg — mutable default argument list/dict/set (CRITICAL)
-regex:def\s+\w+\s*\(.*=\s*\[\]
-regex:def\s+\w+\s*\(.*=\s*\{\}
-# star_import — from module import * (HIGH)
-[HIGH] regex:from\s+\w[\w.]*\s+import\s+\*
-# global_statement — global keyword usage (MEDIUM)
-[MEDIUM] regex:^\s*global\s+\w+
-```
-
----
-
-## Placeholder Indicators
-
-Default severity: **HIGH**
-
-Patterns from [AI-SLOP-Detector: Placeholder Indicators](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#placeholder-indicators).
-
-```patterns
-# pass_placeholder — function body is only pass (HIGH)
-regex:^\s+pass\s*$
-# ellipsis_placeholder — function body is only ... (HIGH)
-regex:^\s+\.\.\.\s*$
-# not_implemented — raise NotImplementedError stub (HIGH)
-raise NotImplementedError
-# empty_except — except handler with only pass (CRITICAL)
-[CRITICAL] regex:except\s+\w[\w.]*(\s+as\s+\w+)?\s*:\s*\n\s+pass\s*$
-# return_none_placeholder — return None as only statement (MEDIUM)
-[MEDIUM] regex:^\s+return\s+None\s*$
-# interface_only_class — class with all-pass bodies (HIGH)
-#   (text heuristic: class + multiple pass lines detected by repetitive-structure)
-```
-
----
-
-## Technical Debt Comments
-
 Default severity: **MEDIUM**
 
-```patterns
-# todo_comment
-regex:#\s*TODO\b
-# fixme_comment
-regex:#\s*FIXME\b
-# xxx_comment
-[LOW] regex:#\s*XXX\b
-# hack_comment
-regex:#\s*HACK\b
-# Go variants
-regex://\s*TODO\b
-regex://\s*FIXME\b
-```
-
----
-
-## Cross-Language Mistakes
-
-Default severity: **HIGH**
-
-AI models trained on multiple languages frequently emit method calls from the wrong language.
-Patterns from [AI-SLOP-Detector: Cross-Language Mistakes](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#cross-language-mistakes).
+Classic filler phrases and clichés that AI code assistants inject into comments,
+docstrings, and string literals. Humans rarely write these.
 
 ```patterns
-# javascript_array_push — .push() used in Python files
-regex:\w+\.push\(
-# javascript_array_length — .length() used in Python files
-regex:\w+\.length\(\)
-# java_equals_method — .equals() used in Python files
-regex:\w+\.equals\(
-# java_tostring_method — .toString() used in Python files
-regex:\w+\.toString\(\)
-# ruby_each — .each {} iterator in non-Ruby context
-regex:\.\s*each\s*\{
-# go_print — fmt.Println() in non-Go files
-[MEDIUM] fmt.Println(
-# csharp_length — .Length property in Python files
-[MEDIUM] regex:\w+\.Length\b
-# php_strlen — strlen() in non-PHP files
-[MEDIUM] regex:\bstrlen\s*\(
-```
-
----
-
-## Python Advanced
-
-Default severity: **HIGH**
-
-Structural patterns from [AI-SLOP-Detector v2.8.0+](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#python-advanced).
-
-```patterns
-# dead_code — statements after return / raise / break / continue (MEDIUM)
-[MEDIUM] regex:^\s+(return|raise|break|continue)\b.*\n\s+\S
-# deep_nesting — excessive indentation depth (proxy for control-flow depth > 4)
-regex:^(\s{20,})\S
-# lint_escape — bare noqa silencing ALL warnings (HIGH)
-regex:#\s*noqa\s*$
-# lint_escape — targeted noqa (LOW)
-[LOW] regex:#\s*noqa:\s*\w+
-# lint_escape — type: ignore (MEDIUM)
-[MEDIUM] regex:#\s*type:\s*ignore
-# lint_escape — pylint: disable (MEDIUM)
-[MEDIUM] regex:#\s*pylint:\s*disable=
-# noinspection (MEDIUM)
-[MEDIUM] regex:#\s*noinspection\b
-```
-
----
-
-## Placeholder Variable Naming
-
-Default severity: **HIGH**
-
-Variables named with placeholder/dummy names in production code.
-Pattern from [AI-SLOP-Detector v3.1.0](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#placeholder_variable_naming).
-
-```patterns
-# placeholder_variable_naming — dummy/temp variable names
-regex:\b(tmp|temp|dummy|foo|bar|baz)\s*=
-# Numbered data/result variables (data2, result3, …)
-regex:\b(data|result|value|item|obj|var)\d+\s*=
-```
-
----
-
-## Return Constant Stub
-
-Default severity: **HIGH**
-
-Function always returns the same hardcoded constant — classic AI stub.
-Pattern from [AI-SLOP-Detector v3.1.0](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#return_constant_stub).
-
-```patterns
-# return_constant_stub — return 0 / return 42 / return "" / return True / return False
-regex:^\s+return\s+(0|42|True|False|""|''|\[\]|\{\})\s*$
-```
-
----
-
-## Clone Detection Heuristics
-
-Default severity: **HIGH**
-
-Text-level heuristics for copy-pasted code.
-Inspired by [AI-SLOP-Detector v3.1.0 Clone Detection](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#clone-detection).
-
-```patterns
-# Copy-paste function signatures differing only by a digit
-regex:def\s+(\w+?)_?\d+\s*\(
-# Repetitive numbered variables (var1, var2, var3 …)
-regex:(\w+)[1-9]\s*=.*\n\s*\1[1-9]\s*=.*\n\s*\1[1-9]\s*=
-# Excessive chained elif / else if blocks with similar bodies
-regex:(elif|else\s+if)\s+.*:\s*\n(\s+.*\n){1,3}\s*(elif|else\s+if)\s+.*:\s*\n(\s+.*\n){1,3}\s*(elif|else\s+if)
-```
-
----
-
-## Synthetic Comment Markers
-
-Default severity: **HIGH**
-
-Comments that reveal AI authorship or templated generation.
-
-```patterns
-# Direct AI attribution
-Generated by AI
-Generated by GPT
-Generated by Copilot
-Generated by Claude
-Generated by Gemini
-Auto-generated code
-This code was generated
-AI-generated
-written by an AI
-# Template markers
-[MEDIUM] BEGIN GENERATED CODE
-[MEDIUM] END GENERATED CODE
-AUTO-GENERATED - DO NOT EDIT
-This file is auto-generated
-Do not modify this file manually
-```
-
----
-
-## Hallucination Indicators (Phantom Import Heuristics)
-
-Default severity: **CRITICAL**
-
-Text-level heuristics for hallucinated imports.
-Inspired by [AI-SLOP-Detector v2.9.0 Phantom Import](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#phantom-import).
-
-```patterns
-# Suspicious deeply-nested import paths (common AI hallucinations)
-regex:from\s+\w+\.utils\.helpers\s+import\s+\w+
-regex:from\s+\w+\.core\.exceptions\s+import\s+\w+Error
-# Non-standard config references
-[HIGH] regex:config\[['"](?:API_KEY|SECRET_KEY|DATABASE_URL)['"]\]
-```
-
----
-
-## Verbosity Indicators
-
-Default severity: **LOW**
-
-Phrases that signal unnecessarily verbose or over-explained code.
-
-```patterns
-# Over-explanation in comments
-This line initializes
-This variable stores
-We need to check if
-The purpose of this function is
-The following code block
-This section handles
-Step 1:
-Step 2:
-Step 3:
-```
-
----
-
-## JavaScript / TypeScript
-
-Default severity: **HIGH**
-
-Patterns from [AI-SLOP-Detector v3.4.0 JS/TS](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#javascript--typescript).
-
-```patterns
-# console_log_debug — leftover console.log / debug / warn (MEDIUM)
-[MEDIUM] regex:console\.(log|debug|warn)\s*\(
-# any_type_cast — TypeScript 'as any' or ': any' type erasure (HIGH)
-regex:\bas\s+any\b
-regex::\s*any\b
-# disabled_test — .skip / .todo / .only / xit / xtest in test files (HIGH)
-regex:\b(describe|it|test)\.(skip|todo|only)\b
-regex:\b(xit|xtest|xdescribe)\s*\(
-# promise_ignore — unhandled async without await or .catch (HIGH)
-regex:(?<!await\s)\b\w+\(.*\)\s*;\s*$
-```
-
----
-
-## Go
-
-Default severity: **HIGH**
-
-Patterns from [AI-SLOP-Detector v3.5.0 Go](https://github.com/flamehaven01/AI-SLOP-Detector/blob/main/docs/PATTERNS.md#go).
-
-```patterns
-# error_discard — _ = fn() silently discards error return (CRITICAL)
-[CRITICAL] regex:_\s*=\s*\w[\w.]*\(
-# empty_select — select {} blocks forever (HIGH)
-regex:select\s*\{\s*\}
-# unused_goroutine — go func() with no channel/sync (HIGH)
-regex:go\s+func\s*\(
+# Direct AI self-references
+As an AI language model
+As a language model
+I cannot provide
+I'm unable to
+# Filler / hedging phrases AI over-produces
+It's worth noting that
+Note that this is a simplified
+This is a basic implementation
+For demonstration purposes
+Let me know if you need
+Feel free to modify
+Feel free to adjust
+Feel free to customize
+Here's a simple example
+Here is a simple example
+As mentioned earlier
+As discussed above
+Here's how you can
+Here is how you can
+This should work for most cases
+You can modify this to
+You may want to adjust
+Make sure to replace
+Don't forget to
+# Instructional tone (AI talks to the user, not the reader)
+regex:#.*\byou can\s+(also\s+)?(use|try|add|change|modify|adjust|replace)\b
+regex:#.*\bmake sure (to|you)\b
+regex:#.*\bdon'?t forget to\b
 ```
 
 ---
@@ -318,155 +68,70 @@ regex:go\s+func\s*\(
 Default severity: **MEDIUM**
 
 Distinctive words and phrases LLMs disproportionately overuse in comments, docstrings,
-and string literals. Individually low signal, but clusters of these are a strong
-indicator of AI authorship.
+and string literals. Individually low signal, but clusters are a strong AI tell.
 
 ```patterns
-# High-frequency AI slop words (MEDIUM when found in code comments)
+# High-frequency AI slop words in comments
 regex:#.*\b(delve|tapestry|multifaceted|nuanced|streamlined)\b
-regex:#.*\b(leverage|utilize|utilize|facilitate|comprehensive)\b
+regex:#.*\b(leverage|utilize|facilitate|comprehensive)\b
 regex:#.*\b(robust|seamless|cutting-edge|state-of-the-art|paradigm)\b
 regex:#.*\b(aforementioned|henceforth|pertaining to|in conjunction with)\b
 regex:#.*\b(endeavor|pivotal|intricate|meticulous|holistic)\b
-# Phrases in docstrings / multi-line strings
+regex:#.*\b(unleash|empower|elevate|harness|supercharge)\b
+regex:#.*\b(game-?changer|best practices|synergy|scalable solution)\b
+# Same words in docstrings / multi-line strings
 regex:""".*\b(delve into|it's important to note|in order to)\b
 regex:""".*\b(at the end of the day|a testament to|serves as a)\b
+regex:""".*\b(leverage|utilize|robust|seamless|comprehensive|facilitate)\b
 # Overly enthusiastic adverbs in comments
 regex:#.*\b(Certainly|Absolutely|Definitely|Essentially|Fundamentally)\b
 # "Simply" / "just" — oversimplification markers
 [LOW] regex:#.*\b(simply|just)\s+(call|use|add|set|pass|create|return)\b
+# Phrases in // comments (JS/Go/Java/C++)
+regex://.*\b(delve|tapestry|multifaceted|nuanced|leverage|utilize|robust|seamless)\b
+regex://.*\b(Certainly|Absolutely|Definitely|Essentially|Fundamentally)\b
 ```
 
 ---
 
-## Cross-Language Value Confusion
+## Synthetic Comment Markers
 
 Default severity: **HIGH**
 
-AI models frequently emit literals or operators from the wrong language.
+Comments that explicitly reveal AI authorship or templated generation.
 
 ```patterns
-# null / undefined in Python (should be None)
-regex:\b(null|undefined)\s*[;)}\],]
-regex:\bif\s+\w+\s*(==|!=|is)\s*null\b
-# true/false (lowercase) in Python (should be True/False)
-regex:\breturn\s+(true|false)\s*$
-regex:\bif\s+.*\b(true|false)\b
-# Logical operators from C/JS in Python (should be and/or/not)
-regex:\s&&\s
-regex:\s\|\|\s
-regex:\s!=\s*null\b
-# Python-style in JavaScript/TypeScript (None, True, False)
-[MEDIUM] regex:\b(None|True|False)\b.*[;]$
-# Semicolons in Python (not needed)
-[LOW] regex:^[^#"']*\w[^#"']*;\s*$
-```
-
----
-
-## Fake / Example Data
-
-Default severity: **MEDIUM**
-
-Hardcoded placeholder data that AI models insert as "examples" and developers forget to replace.
-
-```patterns
-# Names / emails / addresses
-regex:['"]John\s+Doe['"]
-regex:['"]Jane\s+Doe['"]
-regex:['"]john[.@]example\.com['"]
-regex:['"]jane[.@]example\.com['"]
-regex:['"]user@example\.com['"]
-regex:['"]admin@example\.com['"]
-regex:['"]test@test\.com['"]
-regex:['"]foo@bar\.com['"]
-regex:['"]123\s+Main\s+St(reet)?['"]
-regex:['"]Acme\s+(Corp|Inc|Ltd)['"]
-# Lorem ipsum / placeholder text
-Lorem ipsum
-dolor sit amet
-# Phone number placeholders
-regex:['"]555-\d{4}['"]
-regex:['"]\+1[-.\s]?555[-.\s]?\d{3}[-.\s]?\d{4}['"]
-# Example URLs
-regex:['"]https?://example\.com
-regex:['"]https?://api\.example\.com
-regex:['"]https?://localhost:\d+['"]
-```
-
----
-
-## Security Anti-Patterns
-
-Default severity: **CRITICAL**
-
-Hardcoded secrets, dangerous functions, and insecure defaults commonly emitted by AI.
-
-```patterns
-# Hardcoded passwords / tokens / secrets
-regex:(password|passwd|pwd)\s*=\s*['"][^'"]{4,}['"]
-regex:(api_key|apikey|api_token|secret_key|auth_token)\s*=\s*['"][^'"]{4,}['"]
-regex:(access_token|private_key)\s*=\s*['"][^'"]{4,}['"]
-# Dangerous eval / exec
-[CRITICAL] regex:\beval\s*\(
-[CRITICAL] regex:\bexec\s*\(
-# Insecure HTTP (should be HTTPS)
-[HIGH] regex:['"]http://(?!localhost|127\.0\.0\.1|0\.0\.0\.0)
-# Disabled SSL verification
-[CRITICAL] regex:verify\s*=\s*False
-# Shell injection — subprocess with shell=True
-[HIGH] regex:subprocess\.\w+\(.*shell\s*=\s*True
-# Hardcoded IP addresses (non-localhost)
-[MEDIUM] regex:['"](?!127\.0\.0\.1|0\.0\.0\.0|localhost)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}['"]
-# SQL string concatenation (injection risk)
-[HIGH] regex:['"]SELECT\s+.*['"]\s*\+\s*\w+
-[HIGH] regex:['"]INSERT\s+INTO\s+.*['"]\s*\+\s*\w+
-[HIGH] regex:f['"]SELECT\s+.*\{
-[HIGH] regex:f['"]INSERT\s+INTO\s+.*\{
-```
-
----
-
-## Overly Generic Function Names
-
-Default severity: **LOW**
-
-Function names so generic they indicate AI-generated scaffolding rather than
-domain-specific design.
-
-```patterns
-regex:def\s+(process_data|handle_request|do_something|do_stuff)\s*\(
-regex:def\s+(run_task|execute_task|perform_action|main_function)\s*\(
-regex:def\s+(helper|my_function|my_method|test_function)\s*\(
-regex:def\s+(get_data|set_data|update_data|delete_data)\s*\(
-regex:function\s+(processData|handleRequest|doSomething|getData)\s*\(
-regex:func\s+(processData|handleRequest|doSomething)\s*\(
-```
-
----
-
-## Example Usage Blocks
-
-Default severity: **LOW**
-
-AI assistants almost always append "Example usage:" blocks at the bottom of generated code.
-
-```patterns
-# Example-usage header comments
-regex:#\s*(Example\s+usage|Usage\s+example|Sample\s+usage|How\s+to\s+use)\s*:?\s*$
-regex://\s*(Example\s+usage|Usage\s+example)\s*:?\s*$
-regex:#\s*Usage:\s*$
-# if __name__ with print-only demo
-[LOW] regex:if\s+__name__\s*==\s*['"]__main__['"]:\s*$
+# Direct AI attribution
+Generated by AI
+Generated by GPT
+Generated by ChatGPT
+Generated by Copilot
+Generated by Claude
+Generated by Gemini
+Generated by Llama
+Generated by Bard
+Generated by OpenAI
+Auto-generated code
+This code was generated
+regex:#.*\bAI[- ]generated\b
+regex://.*\bAI[- ]generated\b
+regex:#.*\bwritten by (an )?AI\b
+regex:#.*\bcreated by (an )?AI\b
+regex:#.*\bproduced by AI\b
+regex://.*\bwritten by (an )?AI\b
+# Prompt leakage (AI echoing the user's prompt)
+regex:#.*\b(as requested|as you asked|as per your request|per your instructions)\b
+regex://.*\b(as requested|as you asked|as per your request)\b
 ```
 
 ---
 
 ## Self-Referential Comments
 
-Default severity: **LOW**
+Default severity: **MEDIUM**
 
-Comments that narrate what the code is rather than why — a strong AI tell.
+Comments that narrate *what* the code is rather than *why* — a strong AI tell.
+Humans comment intent; AI describes structure.
 
 ```patterns
 # "This X does Y" tautologies
@@ -501,45 +166,125 @@ regex:#\s*(Add|Append|Push|Insert)\s+(the\s+)?\w+\s+(to|into)\s+(the\s+)?(list|a
 
 ---
 
-## Rust Specific
+## Verbosity Indicators
 
-Default severity: **HIGH**
+Default severity: **LOW**
 
-Common AI-generated Rust anti-patterns.
+Overly explanatory phrases that signal machine-generated text.
 
 ```patterns
-# Excessive unwrap() chains — panics in production
-regex:\.unwrap\(\)\..*\.unwrap\(\)
-# Single unwrap (lower severity)
-[MEDIUM] regex:\.unwrap\(\)\s*[;.]
-# todo!() / unimplemented!() macros left in code
-regex:\btodo!\s*\(
-regex:\bunimplemented!\s*\(
-# expect() with unhelpful messages
-[MEDIUM] regex:\.expect\s*\(\s*["'](?:error|failed|something went wrong|todo)["']\s*\)
-# clone() overuse (AI tends to .clone() everything)
-[LOW] regex:\.clone\(\)\..*\.clone\(\)
+# Over-explanation in comments
+This line initializes
+This variable stores
+We need to check if
+The purpose of this function is
+The following code block
+This section handles
+# Numbered step narration
+regex:#\s*Step\s+\d+\s*:
+regex://\s*Step\s+\d+\s*:
 ```
 
 ---
 
-## Java / C# / Kotlin Specific
+## Example Usage Blocks
+
+Default severity: **LOW**
+
+AI assistants almost always append "Example usage:" blocks at the bottom of generated code.
+
+```patterns
+# Example-usage header comments
+regex:#\s*(Example\s+usage|Usage\s+example|Sample\s+usage|How\s+to\s+use)\s*:?\s*$
+regex://\s*(Example\s+usage|Usage\s+example)\s*:?\s*$
+regex:#\s*Usage:\s*$
+```
+
+---
+
+## Fake / Example Data
+
+Default severity: **MEDIUM**
+
+Hardcoded placeholder data that AI models insert as "examples" and developers forget to replace.
+
+```patterns
+# Canonical placeholder names / emails
+regex:['"]John\s+Doe['"]
+regex:['"]Jane\s+Doe['"]
+regex:['"]user@example\.com['"]
+regex:['"]admin@example\.com['"]
+regex:['"]test@test\.com['"]
+regex:['"]foo@bar\.com['"]
+regex:['"]123\s+Main\s+St(reet)?['"]
+regex:['"]Acme\s+(Corp|Inc|Ltd)['"]
+# Lorem ipsum / placeholder text
+Lorem ipsum
+dolor sit amet
+# Phone number placeholders
+regex:['"]555-\d{4}['"]
+```
+
+---
+
+## Cross-Language Confusion
 
 Default severity: **HIGH**
 
+Applies to: .py
+
+AI models trained on many languages frequently emit idioms from the wrong language.
+These are strong AI tells because experienced human developers don't make these mistakes.
+
 ```patterns
-# @SuppressWarnings — hiding issues instead of fixing them
-regex:@SuppressWarnings\s*\(
-# Empty catch block in Java/C#/Kotlin
-[CRITICAL] regex:catch\s*\([^)]*\)\s*\{\s*\}
-# System.out.println debugging leftover
-[MEDIUM] regex:System\.out\.print(ln)?\s*\(
-# Kotlin TODO()
-regex:\bTODO\(\s*["']
-# C# pragma warning disable
-[MEDIUM] regex:#pragma\s+warning\s+disable
-# Java main method with trivial body
-[LOW] regex:public\s+static\s+void\s+main\s*\(\s*String\s*\[\s*\]\s*(args)?\s*\)
+# Wrong-language method calls in Python files
+regex:\w+\.push\(
+regex:\w+\.length\(\)
+regex:\w+\.equals\(
+regex:\w+\.toString\(\)
+# null / undefined in Python (should be None)
+regex:\b(null|undefined)\s*[;)}\],]
+regex:\bif\s+\w+\s*(==|!=|is)\s*null\b
+# true/false lowercase in Python (should be True/False)
+regex:\breturn\s+(true|false)\s*$
+# Logical operators from C/JS used in Python files (should be and/or/not)
+# Only match when preceded by a Python-like variable/expression context
+regex:^[^#]*\b\w+\s+&&\s+\w+
+regex:^[^#]*\b\w+\s+\|\|\s+\w+
+```
+
+---
+
+## Hallucination Indicators
+
+Default severity: **CRITICAL**
+
+Patterns that suggest hallucinated APIs, phantom imports, or invented function signatures —
+among the strongest signals of AI-generated code.
+
+```patterns
+# Suspicious deeply-nested import paths (common AI hallucinations)
+regex:from\s+\w+\.utils\.helpers\s+import\s+\w+
+regex:from\s+\w+\.core\.exceptions\s+import\s+\w+Error
+# Hallucinated long chained attribute access
+regex:\w+\.\w+\.\w+\.\w+\.\w+\.\w+\(
+```
+
+---
+
+## Overly Generic Function Names
+
+Default severity: **LOW**
+
+Function names so generic they indicate AI-generated scaffolding rather than
+domain-specific design.
+
+```patterns
+regex:def\s+(process_data|handle_request|do_something|do_stuff)\s*\(
+regex:def\s+(run_task|execute_task|perform_action|main_function)\s*\(
+regex:def\s+(helper|my_function|my_method|test_function)\s*\(
+regex:function\s+(processData|handleRequest|doSomething|getData)\s*\(
+regex:func\s+(processData|handleRequest|doSomething)\s*\(
 ```
 
 ---
@@ -548,18 +293,34 @@ regex:\bTODO\(\s*["']
 
 Default severity: **MEDIUM**
 
-AI models tend to wrap every operation in try/except with generic error messages.
+AI models tend to wrap every operation in try/except with generic AI-typical error messages.
 
 ```patterns
-# Generic exception message echoing the function name
-regex:except\s+Exception\s+as\s+\w+:\s*\n\s+print\(
-regex:except\s+Exception\s+as\s+\w+:\s*\n\s+return\s+None
-# Bare "Error:" prefix (AI-typical)
+# Bare "Error:" prefix (AI-typical phrasing)
 regex:print\s*\(\s*f?['"]Error:?\s
 regex:print\s*\(\s*f?['"]An error occurred
 regex:print\s*\(\s*f?['"]Something went wrong
-# Logging the exception but re-raising nothing
-[LOW] regex:except\s+\w+.*:\s*\n\s+logging\.\w+\(.*\)\s*$
+# Bare except Exception catch-alls (AI uses these excessively)
+[LOW] regex:^\s*except\s+Exception(\s+as\s+\w+)?:
+```
+
+---
+
+## Decorative Section Separators
+
+Default severity: **MEDIUM**
+
+AI assistants love inserting visually decorated section headers with
+Unicode box-drawing characters or long dash/equals lines.
+Humans occasionally do this, but AI does it systematically throughout a file.
+
+```patterns
+# Unicode box-drawing section headers (── Title ──────)
+regex:#.*[─━═╌╍┄┅]{5,}
+regex://.*[─━═╌╍┄┅]{5,}
+# Long dash/equals separator lines (10+ chars)
+regex:#\s*-{10,}\s*$
+regex:#\s*={10,}\s*$
 ```
 
 ---
@@ -567,10 +328,11 @@ regex:print\s*\(\s*f?['"]Something went wrong
 ## How to Add New Patterns
 
 1. Create a new `## Category` heading and optionally state a default severity.
-2. Add a fenced code block tagged as ` ```patterns `.
-3. Put one pattern per line.  
+2. Optionally add an `Applies to: .py, .js` line to restrict the category to specific file extensions.
+3. Add a fenced code block tagged as ` ```patterns `.
+4. Put one pattern per line.  
    - Plain text lines are matched as **case-insensitive substrings**.  
    - Lines starting with `regex:` are compiled as **Python regular expressions**.
    - Prepend `[CRITICAL]`, `[HIGH]`, `[MEDIUM]`, or `[LOW]` to override the category default.
-4. Comment lines starting with `#` inside the block are ignored.
-5. Commit and push — the action will pick up new patterns automatically.
+5. Comment lines starting with `#` inside the block are ignored.
+6. Commit and push — the action will pick up new patterns automatically.
