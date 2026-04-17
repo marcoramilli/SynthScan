@@ -58,6 +58,15 @@ class ScanResult:
     """Aggregated result of a full scan."""
     total_score: float = 0.0
     matches: List[Match] = field(default_factory=list)
+    lines_scanned: int = 0
+    files_scanned: int = 0
+
+    @property
+    def synthetic_code_score(self) -> float:
+        """Score normalised per 1 000 lines of code."""
+        if self.lines_scanned == 0:
+            return 0.0
+        return (self.total_score / self.lines_scanned) * 1000
 
 # ---------------------------------------------------------------------------
 # Pattern loader – reads the Markdown pattern file
@@ -238,6 +247,12 @@ def scan_directory(root: str, patterns: List[PatternDef]) -> ScanResult:
             fpath = Path(dirpath) / fname
             if not _is_scannable(fpath):
                 continue
+            try:
+                line_count = fpath.read_text(encoding="utf-8", errors="replace").count("\n") + 1
+            except OSError:
+                line_count = 0
+            result.lines_scanned += line_count
+            result.files_scanned += 1
             file_matches = scan_file(fpath, patterns)
             result.matches.extend(file_matches)
             result.total_score += sum(m.score for m in file_matches)
@@ -259,8 +274,8 @@ def build_issue_body(result: ScanResult, repo_root: str) -> str:
     """Generate Markdown for the GitHub issue body."""
     lines: List[str] = []
     lines.append("# SynthScan Report\n")
-    lines.append(f"**Synthetic Code Score: {result.total_score:.0f}**\n")
-    lines.append(f"Total pattern hits: **{len(result.matches)}**\n")
+    lines.append(f"**Synthetic Code Score: {result.synthetic_code_score:.1f}** (per 1k LOC)\n")
+    lines.append(f"Raw score: {result.total_score:.0f} · Pattern hits: {len(result.matches)} · Lines scanned: {result.lines_scanned:,} ({result.files_scanned} files)\n")
 
     if not result.matches:
         lines.append("\nNo synthetic-code patterns detected. :white_check_mark:\n")
@@ -321,9 +336,22 @@ def main() -> None:
     result = scan_directory(scan_path, patterns)
 
     print(f"\n{'='*60}")
-    print(f"Synthetic Code Score : {result.total_score:.0f}")
-    print(f"Total matches        : {len(result.matches)}")
-    print(f"{'='*60}\n")
+    print(f"Raw score            : {result.total_score:.0f}  ({len(result.matches)} matches)")
+    print(f"Lines scanned        : {result.lines_scanned}  ({result.files_scanned} files)")
+    print(f"Synthetic Code Score : {result.synthetic_code_score:.1f}  (per 1k LOC)")
+    print(f"{'='*60}")
+
+    # Per-category breakdown
+    if result.matches:
+        by_cat: dict[str, list[Match]] = {}
+        for m in result.matches:
+            by_cat.setdefault(m.category, []).append(m)
+        print("\nMatches by category:")
+        for cat in sorted(by_cat, key=lambda c: sum(m.score for m in by_cat[c]), reverse=True):
+            cat_matches = by_cat[cat]
+            cat_score = sum(m.score for m in cat_matches)
+            print(f"  - {cat}: {len(cat_matches)} matches ({cat_score:.0f} pts)")
+    print()
 
     issue_body = build_issue_body(result, os.path.realpath(scan_path))
 
@@ -331,16 +359,21 @@ def main() -> None:
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a", encoding="utf-8") as fh:
-            fh.write(f"score={result.total_score:.0f}\n")
+            fh.write(f"score={result.synthetic_code_score:.1f}\n")
+            fh.write(f"raw_score={result.total_score:.0f}\n")
             fh.write(f"match_count={len(result.matches)}\n")
+            fh.write(f"lines_scanned={result.lines_scanned}\n")
             # Multi-line output for the issue body
             fh.write(f"issue_body<<EOF_SYNTHSCAN\n{issue_body}\nEOF_SYNTHSCAN\n")
 
     # Also write a JSON report
     report_path = os.environ.get("INPUT_REPORT_PATH", "synthscan-report.json")
     report = {
-        "score": result.total_score,
+        "synthetic_code_score": round(result.synthetic_code_score, 1),
+        "raw_score": result.total_score,
         "match_count": len(result.matches),
+        "lines_scanned": result.lines_scanned,
+        "files_scanned": result.files_scanned,
         "matches": [
             {
                 "file": os.path.relpath(m.file, os.path.realpath(scan_path)),
@@ -359,8 +392,8 @@ def main() -> None:
     print(f"JSON report written to {report_path}")
 
     # Fail the step if score exceeds threshold (0 = never fail)
-    if score_threshold > 0 and result.total_score >= score_threshold:
-        print(f"\n::error::Synthetic score {result.total_score:.0f} meets or exceeds threshold {score_threshold:.0f}")
+    if score_threshold > 0 and result.synthetic_code_score >= score_threshold:
+        print(f"\n::error::Synthetic Code Score {result.synthetic_code_score:.1f} meets or exceeds threshold {score_threshold:.0f}")
         sys.exit(1)
 
 

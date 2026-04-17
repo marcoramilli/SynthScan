@@ -16,7 +16,7 @@ inputs:
     required: false
     default: "patterns/synthetic_patterns.md"
   score_threshold:
-    description: "Fail the action when the score meets or exceeds this value. Set to 0 to never fail."
+    description: "Fail the action when the Synthetic Code Score (per 1k LOC) meets or exceeds this value. Set to 0 to never fail."
     required: false
     default: "0"
   create_issue:
@@ -34,9 +34,13 @@ inputs:
 
 outputs:
   score:
-    description: "The total synthetic-code score."
+    description: "The Synthetic Code Score (normalised per 1k LOC)."
+  raw_score:
+    description: "The raw (un-normalised) total score."
   match_count:
     description: "Number of pattern matches found."
+  lines_scanned:
+    description: "Total lines of code scanned."
   issue_body:
     description: "Full Markdown body of the report (also used in the issue)."
 
