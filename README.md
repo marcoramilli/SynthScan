@@ -1,18 +1,24 @@
-# SynthScan
+# 🔍 SynthScan
+
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-SynthScan-orange?logo=github)](https://github.com/marketplace/actions/synthscan)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Detect AI-generated (synthetic) code patterns in your repository and automatically open a GitHub Issue with the findings.**
+
+174 detection patterns across 22 categories · Severity-weighted scoring · Editable Markdown pattern file
 
 ---
 
 ## How It Works
 
 1. **Patterns** are defined in a human-readable Markdown file ([patterns/synthetic_patterns.md](patterns/synthetic_patterns.md)).  
-   Each pattern is either a **plain-text substring** (case-insensitive) or a **Python regex** (prefixed with `regex:`).
+   Each pattern is either a **plain-text substring** (case-insensitive) or a **Python regex** (prefixed with `regex:`).  
+   Patterns carry a **severity** (CRITICAL=10, HIGH=5, MEDIUM=2, LOW=1 points).
 
-2. **The scanner** walks every source file in the target directory, tests each line against every pattern, and tallies a **Synthetic Code Score** (1 point per hit).
+2. **The scanner** walks every source file in the target directory, tests each line against every pattern, and tallies a **Synthetic Code Score**.
 
 3. **A GitHub Issue** is created (or updated) with:
-   - the total score,
+   - the total score and severity breakdown,
    - every matched snippet grouped by category,
    - the file path and line number for each hit.
 
@@ -22,9 +28,9 @@
 
 ## Quick Start
 
-### Using SynthScan in your own repository
+### From the GitHub Actions Marketplace
 
-Add the workflow file `.github/workflows/synthscan.yml`:
+Add this workflow to any repo at `.github/workflows/synthscan.yml`:
 
 ```yaml
 name: SynthScan
@@ -48,15 +54,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: <owner>/SynthScan@main          # point to this action
+      - uses: marcoramilli/SynthScan@v1
         with:
           scan_path: ${{ github.event.inputs.scan_path || '.' }}
-          patterns_file: "patterns/synthetic_patterns.md"
           score_threshold: ${{ github.event.inputs.score_threshold || '0' }}
           create_issue: "true"
 ```
-
-> Replace `<owner>` with the GitHub org/user that hosts SynthScan.
 
 ### Running manually
 
@@ -104,9 +107,11 @@ All detection patterns live in [patterns/synthetic_patterns.md](patterns/synthet
 
 ```
 SynthScan/
-├── action.yml                          # GitHub Action definition
+├── action.yml                          # GitHub Action definition (Marketplace entry)
+├── LICENSE                             # MIT License
+├── .gitignore
 ├── scanner/
-│   └── synthscan.py                    # Core scanning engine
+│   └── synthscan.py                    # Core scanning engine (174 patterns)
 ├── patterns/
 │   └── synthetic_patterns.md           # Detection patterns (editable)
 ├── .github/
@@ -119,4 +124,4 @@ SynthScan/
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
