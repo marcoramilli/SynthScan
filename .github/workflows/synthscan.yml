@@ -1,0 +1,41 @@
+name: SynthScan
+
+on:
+  # Manual trigger – the user can run this from the Actions tab
+  workflow_dispatch:
+    inputs:
+      scan_path:
+        description: "Path to scan (relative to repo root)"
+        required: false
+        default: "."
+      score_threshold:
+        description: "Fail when score >= this value (0 = never fail)"
+        required: false
+        default: "0"
+
+  # Optional: also run on pushes to main / PRs
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  synthscan:
+    name: Scan for Synthetic Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run SynthScan
+        uses: ./                       # uses the action defined in this repo
+        with:
+          scan_path: ${{ github.event.inputs.scan_path || '.' }}
+          patterns_file: "patterns/synthetic_patterns.md"
+          score_threshold: ${{ github.event.inputs.score_threshold || '0' }}
+          create_issue: "true"
+          issue_label: "synthscan"
