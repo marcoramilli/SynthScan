@@ -325,6 +325,63 @@ regex:#\s*={10,}\s*$
 
 ---
 
+## Magic Placeholder Names
+
+Default severity: **HIGH**
+
+Hardcoded API key and token placeholders that AI models insert as stand-ins.
+Near-certain AI artifacts when found in source code.
+
+```patterns
+regex:\byour[_-]?api[_-]?key\b
+regex:\bYOUR[_-]?API[_-]?KEY\b
+regex:\bYOUR[_-]?TOKEN[_-]?HERE\b
+regex:\bYOUR[_-]?SECRET[_-]?HERE\b
+regex:\bINSERT[_-]?YOUR[_-]?(KEY|TOKEN|SECRET|PASSWORD)\b
+regex:['"]?<YOUR[_-]?(API[_-]?KEY|TOKEN|SECRET)>['"]?
+regex:\byour[_-]?database[_-]?url\b
+regex:\bYOUR[_-]?DATABASE[_-]?URL\b
+```
+
+---
+
+## Hyper-Verbose Identifiers
+
+Default severity: **LOW**
+
+Function names so long they describe implementation rather than domain intent.
+AI models consistently produce identifiers like `calculateTotalAmountOfAllItems`
+where a human writes `total_price`.
+
+```patterns
+regex:def\s+[a-z_]{25,}\s*\(
+regex:function\s+[a-zA-Z]{25,}\s*\(
+regex:def\s+[a-z_]*(process|calculate|compute|validate|handle|get|set)(And|Or|Then)[A-Z]
+regex:function\s+[a-zA-Z]*(process|calculate|compute|validate|handle|get|set)(And|Or|Then)[A-Z]
+regex:class\s+\w*(DataManager|DataProcessor|DataHandler|RequestHandler|ResponseHandler)\b
+```
+
+---
+
+## Cross-Language Confusion (JS/TS)
+
+Default severity: **HIGH**
+
+Applies to: .js, .ts, .jsx, .tsx
+
+Python idioms incorrectly used in JavaScript/TypeScript files.
+Experienced JS/TS developers never write these; AI models do frequently.
+
+```patterns
+regex:\breturn\s+None\b
+regex:\bif\s+\w+\s*(==|===|!=|!==)\s*None\b
+regex:\breturn\s+(True|False)\b
+regex:^\s*elif\s+
+regex:^\s*print\s*\(
+```
+
+---
+
 ## How to Add New Patterns
 
 1. Create a new `## Category` heading and optionally state a default severity.

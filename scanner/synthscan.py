@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """SynthScan – detect AI-generated / synthetic code patterns in a repository."""
 
+import ast
 import json
 import os
 import re
@@ -51,6 +52,8 @@ class Match:
     category: str
     severity: str = "MEDIUM"
     score: float = 2.0
+    context: str = "CODE"  # "COMMENT", "STRING", or "CODE"
+    clustered: bool = False
 
 
 @dataclass
@@ -60,6 +63,7 @@ class ScanResult:
     matches: List[Match] = field(default_factory=list)
     lines_scanned: int = 0
     files_scanned: int = 0
+    by_directory: "dict[str, float]" = field(default_factory=dict)
 
     @property
     def synthetic_code_score(self) -> float:
@@ -67,6 +71,14 @@ class ScanResult:
         if self.lines_scanned == 0:
             return 0.0
         return (self.total_score / self.lines_scanned) * 1000
+
+    @property
+    def high_critical_hit_rate(self) -> float:
+        """Number of HIGH or CRITICAL matches per file scanned."""
+        if self.files_scanned == 0:
+            return 0.0
+        hc = sum(1 for m in self.matches if m.severity in ("HIGH", "CRITICAL"))
+        return round(hc / self.files_scanned, 2)
 
 # ---------------------------------------------------------------------------
 # Pattern loader – reads the Markdown pattern file
@@ -89,6 +101,8 @@ SKIP_DIRS = {
     ".git", "node_modules", "__pycache__", ".venv", "venv", "env",
     ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
     ".eggs", "*.egg-info", ".next", ".nuxt", "vendor",
+    "migrations", "generated", "proto", "protobuf", "fixtures",
+    "mocks", "stubs", "coverage", "__generated__", "out",
 }
 
 # Files always skipped (pattern definitions, previous reports, etc.)
@@ -98,6 +112,19 @@ SKIP_FILES = {
 }
 
 MAX_FILE_SIZE_BYTES = 1_000_000  # 1 MB – skip huge generated files
+
+# Extensions treated as documentation (phrase-slop patterns are suppressed on these)
+DOC_EXTENSIONS = frozenset({".md", ".txt", ".rst", ".adoc", ".rdoc"})
+
+# Pattern categories that must NOT fire on documentation files to avoid false positives
+SOURCE_ONLY_CATEGORIES = frozenset({
+    "Slop Phrases",
+    "AI Slop Vocabulary",
+    "Verbosity Indicators",
+    "Example Usage Blocks",
+    "Redundant / Tautological Comments",
+    "Self-Referential Comments",
+})
 
 
 _SEVERITY_TAG_RE = re.compile(r"^\[(CRITICAL|HIGH|MEDIUM|LOW)\]\s*", re.IGNORECASE)
@@ -160,6 +187,9 @@ def load_patterns(md_path: str) -> List[PatternDef]:
 
             is_regex = stripped.startswith("regex:")
             raw_pattern = stripped[len("regex:"):] if is_regex else stripped
+            if not is_regex and len(raw_pattern) < 10:
+                print(f"[WARN] Plain-text pattern too short, skipped: {raw_pattern!r}", file=sys.stderr)
+                continue
             compiled = None
             if is_regex:
                 try:
@@ -210,10 +240,40 @@ def scan_file(filepath: Path, patterns: List[PatternDef]) -> List[Match]:
 
     file_ext = filepath.suffix.lower()
     lines = text.split("\n")
+    in_multiline_string: bool = False
+    multiline_delim: str = ""
+
     for line_no, line_text in enumerate(lines, start=1):
+        stripped = line_text.strip()
+
+        # Determine line context (COMMENT / STRING / CODE)
+        if in_multiline_string:
+            context = "STRING"
+            if multiline_delim in line_text:
+                in_multiline_string = False
+        elif stripped.startswith('"""') or stripped.startswith("'''"):
+            context = "STRING"
+            delim = '"""' if stripped.startswith('"""') else "'''"
+            rest = stripped[3:]
+            if delim not in rest:
+                in_multiline_string = True
+                multiline_delim = delim
+        elif (stripped.startswith("#")
+              or stripped.startswith("//")
+              or stripped.startswith("/*")
+              or (stripped.startswith("*") and not stripped.startswith("**"))):
+            context = "COMMENT"
+        else:
+            context = "CODE"
+
+        context_multiplier = {"COMMENT": 1.5, "STRING": 0.5, "CODE": 1.0}.get(context, 1.0)
+
         for pat in patterns:
-            # Skip patterns that are scoped to specific file extensions
+            # Skip patterns scoped to specific file extensions
             if pat.applies_to and file_ext not in pat.applies_to:
+                continue
+            # Suppress phrase-slop patterns on documentation files
+            if file_ext in DOC_EXTENSIONS and pat.category in SOURCE_ONLY_CATEGORIES:
                 continue
             hit = False
             if pat.is_regex and pat.compiled:
@@ -222,6 +282,7 @@ def scan_file(filepath: Path, patterns: List[PatternDef]) -> List[Match]:
                 hit = pat.raw.lower() in line_text.lower()
 
             if hit:
+                adjusted_score = round(pat.score * context_multiplier, 2)
                 matches.append(Match(
                     file=str(filepath),
                     line_number=line_no,
@@ -229,15 +290,256 @@ def scan_file(filepath: Path, patterns: List[PatternDef]) -> List[Match]:
                     pattern_raw=pat.raw,
                     category=pat.category,
                     severity=pat.severity,
-                    score=pat.score,
+                    score=adjusted_score,
+                    context=context,
                 ))
     return matches
+
+
+# ---------------------------------------------------------------------------
+# Pattern clustering – co-occurrence bonus
+# ---------------------------------------------------------------------------
+
+CLUSTER_WINDOW = 10
+CLUSTER_MIN_HITS = 3
+CLUSTER_MULTIPLIER = 1.5
+
+
+def apply_clustering(matches: List[Match]) -> List[Match]:
+    """Boost scores when multiple pattern hits cluster within CLUSTER_WINDOW lines."""
+    if len(matches) < CLUSTER_MIN_HITS:
+        return matches
+    sorted_m = sorted(matches, key=lambda m: m.line_number)
+    clustered_indices: set[int] = set()
+    for i, anchor in enumerate(sorted_m):
+        window = [
+            j for j, m in enumerate(sorted_m)
+            if abs(m.line_number - anchor.line_number) <= CLUSTER_WINDOW
+        ]
+        if len(window) >= CLUSTER_MIN_HITS:
+            clustered_indices.update(window)
+    for i in clustered_indices:
+        sorted_m[i].score = round(sorted_m[i].score * CLUSTER_MULTIPLIER, 2)
+        sorted_m[i].clustered = True
+    return sorted_m
+
+
+# ---------------------------------------------------------------------------
+# Multi-line block detection
+# ---------------------------------------------------------------------------
+
+_TRIPLE_QUOTE_RE = re.compile(r'("""|\'\'\')(.*?)\1', re.DOTALL)
+_TRY_WRAP_RE = re.compile(
+    r'def\s+\w+[^:]*:\s*\n(\s+)try:\s*\n.*?\n\1except\s+Exception',
+    re.DOTALL,
+)
+_DOCSTRING_HEADERS = frozenset({
+    "args:", "parameters:", "returns:", "yields:",
+    "raises:", "notes:", "examples:", "attributes:",
+})
+
+
+def scan_file_blocks(filepath: Path) -> List[Match]:
+    """Detect AI signals that span multiple lines."""
+    try:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    block_matches: List[Match] = []
+
+    # AI-structured docstring: 3+ recognised section headers inside triple-quoted string
+    for m in _TRIPLE_QUOTE_RE.finditer(text):
+        body_lower = m.group(2).lower()
+        found = sum(1 for h in _DOCSTRING_HEADERS if h in body_lower)
+        if found >= 3:
+            lineno = text[:m.start()].count("\n") + 1
+            block_matches.append(Match(
+                file=str(filepath),
+                line_number=lineno,
+                line_text=m.group(2)[:120],
+                pattern_raw="AI-structured docstring (Args/Returns/Raises)",
+                category="Docstring Block Structure",
+                severity="HIGH",
+                score=5.0,
+                context="STRING",
+            ))
+
+    # Function body entirely wrapped in bare try/except Exception
+    for m in _TRY_WRAP_RE.finditer(text):
+        lineno = text[:m.start()].count("\n") + 1
+        block_matches.append(Match(
+            file=str(filepath),
+            line_number=lineno,
+            line_text=text[m.start():m.start() + 80].split("\n")[0],
+            pattern_raw="function body wrapped in bare try/except Exception",
+            category="Excessive Try-Catch Wrapping",
+            severity="MEDIUM",
+            score=2.0,
+            context="CODE",
+        ))
+
+    # Over-commented blocks: >50% comment lines in a 20-line chunk
+    all_lines = text.split("\n")
+    chunk_size = 20
+    for chunk_start in range(0, len(all_lines), chunk_size):
+        chunk = all_lines[chunk_start:chunk_start + chunk_size]
+        if not chunk:
+            continue
+        comment_count = sum(
+            1 for ln in chunk
+            if ln.lstrip().startswith("#") or ln.lstrip().startswith("//")
+        )
+        if comment_count / len(chunk) > 0.5:
+            block_matches.append(Match(
+                file=str(filepath),
+                line_number=chunk_start + 1,
+                line_text=chunk[0][:200],
+                pattern_raw=">50% comment density in 20-line block",
+                category="Over-Commented Block",
+                severity="LOW",
+                score=1.0,
+                context="COMMENT",
+            ))
+
+    return block_matches
+
+
+# ---------------------------------------------------------------------------
+# AST-level structural analysis (Python only)
+# ---------------------------------------------------------------------------
+
+def _max_nesting_depth(node: "ast.AST", depth: int = 0) -> int:
+    """Return the maximum control-flow nesting depth under *node*."""
+    max_depth = depth
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.If, ast.For, ast.While, ast.Try, ast.With)):
+            max_depth = max(max_depth, _max_nesting_depth(child, depth + 1))
+        else:
+            max_depth = max(max_depth, _max_nesting_depth(child, depth))
+    return max_depth
+
+
+def scan_file_ast(filepath: Path) -> List[Match]:
+    """AST-based structural pattern detection for Python files."""
+    try:
+        source = filepath.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError, OSError):
+        return []
+
+    ast_matches: List[Match] = []
+
+    # Collect all identifiers used anywhere in the file (for unused-import detection)
+    all_names: set[str] = set()
+    all_attrs: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            all_names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            all_attrs.add(node.attr)
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+
+            # Unreachable code after return/raise
+            terminal_idx = None
+            for idx, stmt in enumerate(body):
+                if isinstance(stmt, (ast.Return, ast.Raise)):
+                    terminal_idx = idx
+                    break
+            if terminal_idx is not None:
+                for stmt in body[terminal_idx + 1:]:
+                    # Skip trailing string expressions (e.g. a docstring placed at the end)
+                    if (isinstance(stmt, ast.Expr)
+                            and isinstance(stmt.value, ast.Constant)
+                            and isinstance(stmt.value.value, str)):
+                        continue
+                    ast_matches.append(Match(
+                        file=str(filepath),
+                        line_number=stmt.lineno,
+                        line_text="",
+                        pattern_raw="unreachable statement after return/raise",
+                        category="Dead Code",
+                        severity="MEDIUM",
+                        score=2.0,
+                        context="CODE",
+                    ))
+
+            # Overly deep control-flow nesting
+            if _max_nesting_depth(node) > 3:
+                ast_matches.append(Match(
+                    file=str(filepath),
+                    line_number=node.lineno,
+                    line_text="",
+                    pattern_raw="function nesting depth > 3",
+                    category="Deep Nesting",
+                    severity="LOW",
+                    score=1.0,
+                    context="CODE",
+                ))
+
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            # Unused imports
+            for alias in node.names:
+                name = alias.asname if alias.asname else alias.name
+                top = name.split(".")[0]
+                if top not in all_names and top not in all_attrs:
+                    ast_matches.append(Match(
+                        file=str(filepath),
+                        line_number=node.lineno,
+                        line_text="",
+                        pattern_raw=f"unused import: {name}",
+                        category="Unused Imports",
+                        severity="LOW",
+                        score=1.0,
+                        context="CODE",
+                    ))
+
+    return ast_matches
+
+
+# ---------------------------------------------------------------------------
+# Cross-file repetition detection
+# ---------------------------------------------------------------------------
+
+REPETITION_MIN_FILES = 3
+_DOCSTRING_COLLECT_RE = re.compile(r'(?:"""|\'\'\')(.*?)(?:"""|\'\'\')' , re.DOTALL)
+
+
+def detect_cross_file_repetition(registry: "dict[str, list[str]]") -> List[Match]:
+    """Flag docstrings that appear verbatim (normalised) across 3+ different files."""
+    extra: List[Match] = []
+    for text_key, filepaths in registry.items():
+        if len(filepaths) >= REPETITION_MIN_FILES:
+            for fp in filepaths:
+                extra.append(Match(
+                    file=fp,
+                    line_number=0,
+                    line_text=text_key[:120],
+                    pattern_raw=f"identical docstring in {len(filepaths)} files",
+                    category="Cross-File Repetition",
+                    severity="HIGH",
+                    score=5.0,
+                    context="STRING",
+                ))
+    return extra
+
+
+# ---------------------------------------------------------------------------
+# Directory walker
+# ---------------------------------------------------------------------------
+
+DIMINISHING_RETURNS_THRESHOLD = 20
+DIMINISHING_RETURNS_FACTOR = 0.5
 
 
 def scan_directory(root: str, patterns: List[PatternDef]) -> ScanResult:
     """Walk *root* and scan every eligible source file."""
     result = ScanResult()
     root_path = Path(root).resolve()
+    docstring_registry: dict[str, list[str]] = {}
 
     for dirpath, dirnames, filenames in os.walk(root_path):
         # Prune ignored directories in-place
@@ -247,15 +549,54 @@ def scan_directory(root: str, patterns: List[PatternDef]) -> ScanResult:
             fpath = Path(dirpath) / fname
             if not _is_scannable(fpath):
                 continue
+            # Read file text once; reuse for line count and docstring collection
             try:
-                line_count = fpath.read_text(encoding="utf-8", errors="replace").count("\n") + 1
+                file_text = fpath.read_text(encoding="utf-8", errors="replace")
             except OSError:
-                line_count = 0
+                continue
+
+            line_count = file_text.count("\n") + 1
             result.lines_scanned += line_count
             result.files_scanned += 1
-            file_matches = scan_file(fpath, patterns)
+
+            # Collect normalised docstrings for cross-file repetition detection
+            for ds_match in _DOCSTRING_COLLECT_RE.finditer(file_text):
+                normalized = " ".join(ds_match.group(1).lower().split())
+                if len(normalized) > 50:
+                    docstring_registry.setdefault(normalized, []).append(str(fpath))
+
+            file_matches: List[Match] = scan_file(fpath, patterns)
+            file_matches = apply_clustering(file_matches)
+
+            block_matches = scan_file_blocks(fpath)
+            file_matches.extend(block_matches)
+
+            if fpath.suffix.lower() == ".py":
+                ast_matches = scan_file_ast(fpath)
+                file_matches.extend(ast_matches)
+
+            # Diminishing returns: discount the tail of hits per file
+            if len(file_matches) > DIMINISHING_RETURNS_THRESHOLD:
+                file_matches.sort(key=lambda m: m.score, reverse=True)
+                for m in file_matches[DIMINISHING_RETURNS_THRESHOLD:]:
+                    m.score = round(m.score * DIMINISHING_RETURNS_FACTOR, 2)
+
             result.matches.extend(file_matches)
             result.total_score += sum(m.score for m in file_matches)
+
+            # Per-directory score accumulation
+            try:
+                dir_key = str(fpath.parent.relative_to(root_path)) or "."
+            except ValueError:
+                dir_key = str(fpath.parent)
+            result.by_directory[dir_key] = (
+                result.by_directory.get(dir_key, 0.0) + sum(m.score for m in file_matches)
+            )
+
+    # Cross-file repetition pass (requires full walk to be complete)
+    repetition_matches = detect_cross_file_repetition(docstring_registry)
+    result.matches.extend(repetition_matches)
+    result.total_score += sum(m.score for m in repetition_matches)
 
     return result
 
@@ -294,6 +635,16 @@ def build_issue_body(result: ScanResult, repo_root: str) -> str:
             lines.append(f"| {_severity_emoji(sev)} {sev} | {cnt} | {SEVERITY_SCORES[sev]:.0f} |")
     lines.append("")
 
+    # Per-directory breakdown
+    if result.by_directory:
+        top = sorted(result.by_directory.items(), key=lambda x: x[1], reverse=True)[:5]
+        lines.append("### Top Directories by Score\n")
+        lines.append("| Directory | Score |")
+        lines.append("|-----------|-------|")
+        for d, s in top:
+            lines.append(f"| `{d}` | {s:.0f} |")
+        lines.append("")
+
     # Group by category
     by_cat: dict[str, List[Match]] = {}
     for m in result.matches:
@@ -305,7 +656,8 @@ def build_issue_body(result: ScanResult, repo_root: str) -> str:
         shown = cat_matches[:MAX_SNIPPETS_IN_ISSUE]
         for m in shown:
             rel = os.path.relpath(m.file, repo_root)
-            lines.append(f"- {_severity_emoji(m.severity)} **{rel}** L{m.line_number} `[{m.severity}]`  ")
+            clustered_tag = " (clustered)" if m.clustered else ""
+            lines.append(f"- {_severity_emoji(m.severity)} **{rel}** L{m.line_number} `[{m.severity}]` `[{m.context}]`{clustered_tag}  ")
             lines.append(f"  Pattern: `{m.pattern_raw}`  ")
             lines.append(f"  ```")
             lines.append(f"  {m.line_text}")
@@ -339,7 +691,13 @@ def main() -> None:
     print(f"Raw score            : {result.total_score:.0f}  ({len(result.matches)} matches)")
     print(f"Lines scanned        : {result.lines_scanned}  ({result.files_scanned} files)")
     print(f"Synthetic Code Score : {result.synthetic_code_score:.1f}  (per 1k LOC)")
+    print(f"HIGH/CRITICAL rate   : {result.high_critical_hit_rate:.2f} per file")
     print(f"{'='*60}")
+    if result.by_directory:
+        top_dirs = sorted(result.by_directory.items(), key=lambda x: x[1], reverse=True)[:5]
+        print("\nTop directories by score:")
+        for d, s in top_dirs:
+            print(f"  - {d}: {s:.0f} pts")
 
     # Per-category breakdown
     if result.matches:
@@ -363,6 +721,8 @@ def main() -> None:
             fh.write(f"raw_score={result.total_score:.0f}\n")
             fh.write(f"match_count={len(result.matches)}\n")
             fh.write(f"lines_scanned={result.lines_scanned}\n")
+            fh.write(f"high_critical_hit_rate={result.high_critical_hit_rate}\n")
+            fh.write(f"by_directory={json.dumps(result.by_directory)}\n")
             # Multi-line output for the issue body
             fh.write(f"issue_body<<EOF_SYNTHSCAN\n{issue_body}\nEOF_SYNTHSCAN\n")
 
@@ -374,6 +734,8 @@ def main() -> None:
         "match_count": len(result.matches),
         "lines_scanned": result.lines_scanned,
         "files_scanned": result.files_scanned,
+        "high_critical_hit_rate": result.high_critical_hit_rate,
+        "by_directory": result.by_directory,
         "matches": [
             {
                 "file": os.path.relpath(m.file, os.path.realpath(scan_path)),
@@ -383,6 +745,8 @@ def main() -> None:
                 "category": m.category,
                 "severity": m.severity,
                 "score": m.score,
+                "context": m.context,
+                "clustered": m.clustered,
             }
             for m in result.matches
         ],

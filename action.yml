@@ -43,6 +43,10 @@ outputs:
     description: "Total lines of code scanned."
   issue_body:
     description: "Full Markdown body of the report (also used in the issue)."
+  high_critical_hit_rate:
+    description: "Number of HIGH or CRITICAL matches per file scanned."
+  by_directory:
+    description: "JSON object mapping directory paths to their score."
 
 runs:
   using: "composite"
