@@ -53,12 +53,12 @@ Here is how you can
 This should work for most cases
 You can modify this to
 You may want to adjust
-Make sure to replace
-Don't forget to
+[LOW] Make sure to replace
+[LOW] Don't forget to
 # Instructional tone (AI talks to the user, not the reader)
 regex:#.*\byou can\s+(also\s+)?(use|try|add|change|modify|adjust|replace)\b
-regex:#.*\bmake sure (to|you)\b
-regex:#.*\bdon'?t forget to\b
+[LOW] regex:#.*\bmake sure (to|you)\b
+[LOW] regex:#.*\bdon'?t forget to\b
 ```
 
 ---
@@ -204,25 +204,27 @@ regex:#\s*Usage:\s*$
 
 ## Fake / Example Data
 
-Default severity: **MEDIUM**
+Default severity: **LOW**
 
 Hardcoded placeholder data that AI models insert as "examples" and developers forget to replace.
+Severity reduced to LOW because placeholder emails and names like "John Doe" appear
+frequently in legitimate pre-ChatGPT sample code, tutorials, and documentation.
 
 ```patterns
-# Canonical placeholder names / emails
-regex:['"]John\s+Doe['"]
-regex:['"]Jane\s+Doe['"]
-regex:['"]user@example\.com['"]
-regex:['"]admin@example\.com['"]
-regex:['"]test@test\.com['"]
-regex:['"]foo@bar\.com['"]
-regex:['"]123\s+Main\s+St(reet)?['"]
-regex:['"]Acme\s+(Corp|Inc|Ltd)['"]
-# Lorem ipsum / placeholder text
+# Canonical placeholder names / emails — LOW to reduce false positives on old tutorial code
+[LOW] regex:['"]John\s+Doe['"]
+[LOW] regex:['"]Jane\s+Doe['"]
+[LOW] regex:['"]user@example\.com['"]
+[LOW] regex:['"]admin@example\.com['"]
+[LOW] regex:['"]test@test\.com['"]
+[LOW] regex:['"]foo@bar\.com['"]
+[LOW] regex:['"]123\s+Main\s+St(reet)?['"]
+[LOW] regex:['"]Acme\s+(Corp|Inc|Ltd)['"]
+# Lorem ipsum / placeholder text — strong AI signal when in code (not docs)
 Lorem ipsum
 dolor sit amet
 # Phone number placeholders
-regex:['"]555-\d{4}['"]
+[LOW] regex:['"]555-\d{4}['"]
 ```
 
 ---
@@ -276,15 +278,18 @@ regex:\w+\.\w+\.\w+\.\w+\.\w+\.\w+\(
 
 Default severity: **LOW**
 
+Applies to: .py, .js, .ts, .jsx, .tsx
+
 Function names so generic they indicate AI-generated scaffolding rather than
-domain-specific design.
+domain-specific design. Severity is LOW because experienced humans also write
+these as stubs — cluster scoring carries the signal.
 
 ```patterns
-regex:def\s+(process_data|handle_request|do_something|do_stuff)\s*\(
-regex:def\s+(run_task|execute_task|perform_action|main_function)\s*\(
-regex:def\s+(helper|my_function|my_method|test_function)\s*\(
-regex:function\s+(processData|handleRequest|doSomething|getData)\s*\(
-regex:func\s+(processData|handleRequest|doSomething)\s*\(
+[LOW] regex:def\s+(process_data|handle_request|do_something|do_stuff)\s*\(
+[LOW] regex:def\s+(run_task|execute_task|perform_action|main_function)\s*\(
+[LOW] regex:def\s+(helper|my_function|my_method|test_function)\s*\(
+[LOW] regex:function\s+(processData|handleRequest|doSomething|getData)\s*\(
+[LOW] regex:func\s+(processData|handleRequest|doSomething)\s*\(
 ```
 
 ---
