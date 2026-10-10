@@ -1,0 +1,7 @@
+- id: synthscan-audit
+  name: SynthScan staged-diff audit
+  description: Audit staged changes and fail on HIGH or CRITICAL heuristic risk.
+  entry: synthscan --staged --ci
+  language: system
+  pass_filenames: false
+  always_run: true

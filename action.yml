@@ -63,6 +63,15 @@ outputs:
   high_critical_hit_rate:
     description: "Number of HIGH or CRITICAL matches per file scanned."
     value: ${{ steps.scan.outputs.high_critical_hit_rate }}
+  risk_score:
+    description: "Uncalibrated SynthScan risk index (0-100)."
+    value: ${{ steps.scan.outputs.risk_score }}
+  risk_severity:
+    description: "Heuristic risk band (LOW, MEDIUM, HIGH, CRITICAL)."
+    value: ${{ steps.scan.outputs.risk_severity }}
+  risk_vectors:
+    description: "JSON object containing the four uncalibrated risk vector scores."
+    value: ${{ steps.scan.outputs.risk_vectors }}
   by_directory:
     description: "JSON object mapping directory paths to their score."
     value: ${{ steps.scan.outputs.by_directory }}

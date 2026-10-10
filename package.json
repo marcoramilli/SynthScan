@@ -1,15 +1,29 @@
 {
-  "name": "synthscan",
+  "name": "@synthscan/synthscan",
   "version": "2.0.1",
   "description": "Detect AI-generated / synthetic code patterns.",
   "main": "bin/synthscan.js",
   "bin": {
-    "synthscan": "./bin/synthscan.js"
+    "synthscan": "bin/synthscan.js",
+    "slopscan": "bin/synthscan.js"
   },
+  "scripts": {
+    "build": "node --check bin/synthscan.js",
+    "prepack": "npm run build"
+  },
+  "files": [
+    "bin/synthscan.js",
+    "scanner/*.py",
+    "patterns/*.py",
+    "patterns/*.md",
+    "schemas/*.json",
+    "README.md",
+    "LICENSE"
+  ],
   "author": "Marco Ramilli",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/marcoramilli/SynthScan.git"
+    "url": "git+https://github.com/marcoramilli/SynthScan.git"
   }
 }

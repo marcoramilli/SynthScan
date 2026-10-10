@@ -11,6 +11,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+try:
+    from .risk import build_risk_payload
+except ImportError:
+    from risk import build_risk_payload
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -479,6 +484,29 @@ def scan_file_ast(filepath: Path) -> List[Match]:
             all_attrs.add(node.attr)
 
     for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            body_is_empty = all(
+                isinstance(statement, ast.Pass)
+                or (
+                    isinstance(statement, ast.Expr)
+                    and isinstance(statement.value, ast.Constant)
+                    and (isinstance(statement.value.value, str) or statement.value.value is Ellipsis)
+                )
+                for statement in node.body
+            )
+            if body_is_empty:
+                line_text = source.splitlines()[node.lineno - 1].strip() if node.lineno <= len(source.splitlines()) else ""
+                ast_matches.append(Match(
+                    file=str(filepath),
+                    line_number=node.lineno,
+                    line_text=line_text,
+                    pattern_raw="empty exception handler suppresses the caught error",
+                    category="Empty Error Handlers",
+                    severity="HIGH",
+                    score=5.0,
+                    context="CODE",
+                ))
+
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             body = node.body
 
@@ -718,6 +746,8 @@ def parse_unified_diff(diff_text: str) -> "dict[str, set[int]]":
             elif not raw_line.startswith("-"):
                 current_new_line += 1
 
+    return result
+
 
 # ---------------------------------------------------------------------------
 # SARIF 2.1.0 output (GitHub Code Scanning inline annotations)
@@ -833,20 +863,25 @@ def scan_directory(
             )
             result.files_scanned += 1
 
-            # Collect normalised docstrings for cross-file repetition detection
-            for ds_match in _DOCSTRING_COLLECT_RE.finditer(file_text):
-                normalized = " ".join(ds_match.group(1).lower().split())
-                if len(normalized) > 50:
-                    docstring_registry.setdefault(normalized, []).append(str(fpath))
+            # Cross-file repetition needs full-scan provenance and is omitted in PR diff mode.
+            if diff_lines_for_file is None:
+                for ds_match in _DOCSTRING_COLLECT_RE.finditer(file_text):
+                    normalized = " ".join(ds_match.group(1).lower().split())
+                    if len(normalized) > 50:
+                        docstring_registry.setdefault(normalized, []).append(str(fpath))
 
             file_matches: List[Match] = scan_file(fpath, patterns, diff_lines=diff_lines_for_file)
             file_matches = apply_clustering(file_matches)
 
             block_matches = scan_file_blocks(fpath)
+            if diff_lines_for_file is not None:
+                block_matches = [match for match in block_matches if match.line_number in diff_lines_for_file]
             file_matches.extend(block_matches)
 
             if fpath.suffix.lower() == ".py":
                 ast_matches = scan_file_ast(fpath)
+                if diff_lines_for_file is not None:
+                    ast_matches = [match for match in ast_matches if match.line_number in diff_lines_for_file]
                 file_matches.extend(ast_matches)
 
             # Diminishing returns: discount the tail of hits per file
@@ -868,7 +903,7 @@ def scan_directory(
             )
 
     # Cross-file repetition pass (requires full walk to be complete)
-    repetition_matches = detect_cross_file_repetition(docstring_registry)
+    repetition_matches = detect_cross_file_repetition(docstring_registry) if diff_map is None else []
     result.matches.extend(repetition_matches)
     result.total_score += sum(m.score for m in repetition_matches)
 
@@ -1024,6 +1059,7 @@ def main() -> None:
     t_print()
 
     issue_body = build_issue_body(result, os.path.realpath(scan_path))
+    risk_payload = build_risk_payload(result, SYNTHSCAN_VERSION, os.path.realpath(scan_path))
 
     # Write outputs for the GitHub Action
     github_output = os.environ.get("GITHUB_OUTPUT")
@@ -1035,12 +1071,17 @@ def main() -> None:
             fh.write(f"lines_scanned={result.lines_scanned}\n")
             fh.write(f"high_critical_hit_rate={result.high_critical_hit_rate}\n")
             fh.write(f"by_directory={json.dumps(result.by_directory)}\n")
+            fh.write(f"risk_score={risk_payload['overall_score']}\n")
+            fh.write(f"risk_severity={risk_payload['overall_severity']}\n")
+            fh.write(f"risk_vectors={json.dumps({key: value['score'] for key, value in risk_payload['vectors'].items()})}\n")
             # Multi-line output for the issue body
             fh.write(f"issue_body<<EOF_SYNTHSCAN\n{issue_body}\nEOF_SYNTHSCAN\n")
 
     # Also write a JSON report
     report_path = args.report_path
     report = {
+        "schema_version": "1.0.0",
+        "engine_version": SYNTHSCAN_VERSION,
         "synthetic_code_score": round(result.synthetic_code_score, 1),
         "raw_score": result.total_score,
         "match_count": len(result.matches),
@@ -1048,6 +1089,7 @@ def main() -> None:
         "files_scanned": result.files_scanned,
         "high_critical_hit_rate": result.high_critical_hit_rate,
         "by_directory": result.by_directory,
+        "risk_payload": risk_payload,
         "matches": [
             {
                 "file": os.path.relpath(m.file, os.path.realpath(scan_path)),
