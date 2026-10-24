@@ -56,14 +56,14 @@ jobs:
             const reportPath = process.env.SYNTHSCAN_REPORT;
             if (!fs.existsSync(reportPath)) {
               await core.summary.addHeading('SynthScan did not produce a report', 2)
-                .addText('Inspect the scan step output for setup or scanner errors.')
+                .addRaw('Inspect the scan step output for setup or scanner errors.', true)
                 .write();
               return;
             }
             const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
             const risk = report.risk_payload || {};
             await core.summary.addHeading('SynthScan PR Risk Review', 2)
-              .addText(`Heuristic index: ${risk.overall_score ?? 'n/a'}/100 (${risk.overall_severity || 'unavailable'}); uncalibrated.`)
+              .addRaw(`Heuristic index: ${risk.overall_score ?? 'n/a'}/100 (${risk.overall_severity || 'unavailable'}); uncalibrated.`, true)
               .addTable([
                 [{data: 'Risk vector', header: true}, {data: 'Index', header: true}, {data: 'Findings', header: true}],
                 ...Object.entries(risk.vectors || {}).map(([key, vector]) => [vector.label || key, `${vector.score}/100`, String(vector.finding_count || 0)]),
