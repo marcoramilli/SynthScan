@@ -1,0 +1,134 @@
+name: SynthScan PR Risk Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  scan:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout pull request base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run SynthScan on added lines
+        id: scan
+        continue-on-error: true
+        working-directory: source
+        env:
+          SYNTHSCAN_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SYNTHSCAN_REPORT: ${{ runner.temp }}/synthscan-pr-report.json
+        run: |
+          git fetch --no-tags "$GITHUB_WORKSPACE/base/.git" "$SYNTHSCAN_BASE_SHA"
+          node bin/synthscan.js --diff-base "$SYNTHSCAN_BASE_SHA" --ci --output-json "$SYNTHSCAN_REPORT"
+
+      - name: Add report summary
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          SYNTHSCAN_REPORT: ${{ runner.temp }}/synthscan-pr-report.json
+        with:
+          script: |
+            const fs = require('node:fs');
+            const reportPath = process.env.SYNTHSCAN_REPORT;
+            if (!fs.existsSync(reportPath)) {
+              await core.summary.addHeading('SynthScan did not produce a report', 2)
+                .addRaw('Inspect the scan step output for setup or scanner errors.', true)
+                .write();
+              return;
+            }
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const risk = report.risk_payload || {};
+            await core.summary.addHeading('SynthScan PR Risk Review', 2)
+              .addRaw(`Heuristic index: ${risk.overall_score ?? 'n/a'}/100 (${risk.overall_severity || 'unavailable'}); uncalibrated.`, true)
+              .addTable([
+                [{data: 'Risk vector', header: true}, {data: 'Index', header: true}, {data: 'Findings', header: true}],
+                ...Object.entries(risk.vectors || {}).map(([key, vector]) => [vector.label || key, `${vector.score}/100`, String(vector.finding_count || 0)]),
+              ])
+              .write();
+
+      - name: Upload SynthScan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthscan-pr-report
+          path: ${{ runner.temp }}/synthscan-pr-report.json
+          if-no-files-found: warn
+
+      - name: Enforce risk gate
+        if: always() && steps.scan.outcome == 'failure'
+        run: exit 1
+
+  comment:
+    needs: scan
+    if: always() && github.event.pull_request.head.repo.fork == false && needs.scan.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Checkout trusted base revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Download SynthScan report artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: synthscan-pr-report
+          path: ${{ runner.temp }}/synthscan-pr-report
+
+      - name: Update PR comment
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          SYNTHSCAN_REPORT: ${{ runner.temp }}/synthscan-pr-report/synthscan-pr-report.json
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { COMMENT_MARKER, renderComment } = require('./scripts/pr-comment.js');
+            const reportPath = process.env.SYNTHSCAN_REPORT;
+            if (!fs.existsSync(reportPath)) {
+              core.warning('No SynthScan report was generated; no PR comment was posted.');
+              return;
+            }
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const body = renderComment(report);
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(COMMENT_MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

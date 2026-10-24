@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synthscan.ai/schemas/synthscan-risk-v1.schema.json",
+  "title": "SynthScan Risk Payload v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "engine_version",
+    "scoring_version",
+    "assessment",
+    "calibrated",
+    "overall_score",
+    "overall_severity",
+    "review_time",
+    "scan_metadata",
+    "vectors",
+    "findings",
+    "unmapped_category_count"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "engine_version": { "type": "string", "minLength": 1 },
+    "scoring_version": { "type": "string", "minLength": 1 },
+    "assessment": { "const": "heuristic_signal_not_probability" },
+    "calibrated": { "const": false },
+    "overall_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "overall_severity": { "$ref": "#/$defs/severity" },
+    "review_time": {
+      "type": "object",
+      "required": ["estimate_minutes", "method", "calibrated"],
+      "properties": {
+        "estimate_minutes": { "type": "number", "minimum": 0 },
+        "method": { "type": "string" },
+        "calibrated": { "const": false }
+      },
+      "additionalProperties": true
+    },
+    "scan_metadata": {
+      "type": "object",
+      "required": ["lines_scanned", "files_scanned"],
+      "properties": {
+        "lines_scanned": { "type": "integer", "minimum": 0 },
+        "files_scanned": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "vectors": {
+      "type": "object",
+      "required": [
+        "cognitive_ownership",
+        "hallucinated_dependency_supply_chain",
+        "agent_over_engineering",
+        "pr_review_velocity_impact"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cognitive_ownership": { "$ref": "#/$defs/vector" },
+        "hallucinated_dependency_supply_chain": { "$ref": "#/$defs/vector" },
+        "agent_over_engineering": { "$ref": "#/$defs/vector" },
+        "pr_review_velocity_impact": { "$ref": "#/$defs/vector" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "severity", "file", "line", "vectors", "confidence"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "category": { "type": "string" },
+          "severity": { "$ref": "#/$defs/severity" },
+          "file": { "type": "string" },
+          "line": { "type": "integer", "minimum": 0 },
+          "vectors": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "const": "unvalidated" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "unmapped_category_count": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "vector": {
+      "type": "object",
+      "required": ["label", "score", "severity", "finding_count", "severity_counts", "finding_ids", "rationale", "calibrated"],
+      "properties": {
+        "label": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "finding_count": { "type": "integer", "minimum": 0 },
+        "severity_counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "finding_ids": { "type": "array", "items": { "type": "string" } },
+        "rationale": { "type": "string" },
+        "calibrated": { "const": false }
+      },
+      "additionalProperties": true
+    }
+  }
+}
